@@ -68,7 +68,12 @@ def binary_to_ami(bin_str):
     return ''.join(ami)
 
 def ami_to_binary(ami_str):
-    return ''.join('0' if c == '0' else '1' for c in ami_str)
+    # Converte AMI de volta para um binário contínuo (o que já tava antes)
+    continuous_binary = ''.join('0' if c == '0' else '1' for c in ami_str)
+    # Divide o binário contínuo em pedaços de 8 bits
+    chunks = [continuous_binary[i:i+8] for i in range(0, len(continuous_binary), 8)]  
+    # Junta os pedaços com um espaço entre eles, recriando o formato original
+    return ' '.join(chunks)
 
 # ----------------------------
 # MAIN APPLICATION CLASS
