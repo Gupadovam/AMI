@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.pyplot as plt
 import socket
 import threading
@@ -19,7 +19,7 @@ def generate_keys():
     """Gera um par de chaves RSA (privada e pública)."""
     private_key = rsa.generate_private_key(
         public_exponent=65537,
-        key_size=2048,
+        key_size=1024,
         backend=default_backend()  # <-- ADICIONE ESTE PARÂMETRO
     )
     public_key = private_key.public_key()
@@ -112,16 +112,11 @@ def ami_to_binary(ami_str):
 # ----------------------------
 # MAIN APPLICATION CLASS
 # ----------------------------
-# (O código anterior a esta classe permanece o mesmo)
-
-# ----------------------------
-# MAIN APPLICATION CLASS
-# ----------------------------
 class NetworkCipherApp:
     def __init__(self, root):
         self.root = root
         self.root.title("BROADCAST com Criptografia Assimétrica RSA") # Título atualizado
-        self.root.geometry("1200x950")
+        self.root.geometry("1200x700")
 
         self.data_queue = queue.Queue()
         self.stop_server_event = threading.Event()
@@ -130,6 +125,13 @@ class NetworkCipherApp:
         self.public_key = None
 
         self.FIXED_PORT = 9999
+        
+        # Janelas do gráfico
+        self.plot_window = None
+        self.plot_window_200 = None
+        
+        # Flag para controlar se a aplicação está rodando
+        self.is_running = True
 
         self.setup_gui()
         self.periodic_queue_check()
@@ -144,55 +146,52 @@ class NetworkCipherApp:
         role_menu.grid(row=0, column=1, padx=5, pady=5, sticky='w')
         role_menu.bind("<<ComboboxSelected>>", self.toggle_role)
         
-        # O campo de IP agora é para o endereço de Broadcast
+        # O campo de IP agora é para o endereço de Broadcast (não editável)
         tk.Label(net_frame, text="Broadcast IP:").grid(row=0, column=2, padx=5, pady=5, sticky='w')
-        self.ip_entry = tk.Entry(net_frame, width=20)
+        self.ip_entry = tk.Entry(net_frame, width=20, state='readonly')
         self.ip_entry.grid(row=0, column=3, padx=5, pady=5, sticky='w')
         # Preenche com o endereço de broadcast mais comum
-        self.ip_entry.insert(0, "255.255.255.255") 
-
-        # tk.Label(net_frame, text="Port:").grid(row=0, column=4, padx=5, pady=5, sticky='w')
-        # self.port_entry = tk.Entry(net_frame, width=10)
-        # self.port_entry.grid(row=0, column=5, padx=5, pady=5, sticky='w')
-        # self.port_entry.insert(0, "9999")
+        self.ip_entry.config(state='normal')
+        self.ip_entry.insert(0, "255.255.255.255")
+        self.ip_entry.config(state='readonly')
         
         self.server_button = tk.Button(net_frame, text="Start Listening", command=self.start_server, width=15) # Texto do botão atualizado
         self.server_button.grid(row=0, column=6, padx=10, pady=5)
         self.server_status_label = tk.Label(net_frame, text="Listener is offline.", fg="red", font=("Segoe UI", 9))
         self.server_status_label.grid(row=0, column=7, padx=5, pady=5, sticky="w")
 
-        # --- O resto da GUI (Key Management, Main Frame, Plot) permanece o mesmo ---
-        # ... (código da GUI omitido por brevidade, é o mesmo da versão anterior) ...
-        keys_frame = ttk.LabelFrame(self.root, text="🔑 Asymmetric Key Management (RSA)", padding=(10, 5))
-        keys_frame.pack(padx=20, pady=5, fill="x")
-        tk.Button(keys_frame, text="Gerar Meu Par de Chaves", command=self.generate_key_pair_gui).grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky='w')
-        pub_key_header_frame = tk.Frame(keys_frame)
+        # --- Key Management Frame (apenas para Server) ---
+        self.keys_frame = ttk.LabelFrame(self.root, text="🔑 Asymmetric Key Management (RSA)", padding=(10, 5))
+        self.keys_frame.pack(padx=20, pady=5, fill="x")
+        tk.Button(self.keys_frame, text="Gerar Meu Par de Chaves", command=self.generate_key_pair_gui).grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky='w')
+        pub_key_header_frame = tk.Frame(self.keys_frame)
         pub_key_header_frame.grid(row=1, column=0, sticky='ew')
         tk.Label(pub_key_header_frame, text="Minha Chave Pública (Compartilhe esta):").pack(side=tk.LEFT, padx=5)
         tk.Button(pub_key_header_frame, text="📋 Copiar", command=self.copy_public_key_to_clipboard).pack(side=tk.RIGHT, padx=5)
-        self.my_public_key_text = scrolledtext.ScrolledText(keys_frame, height=4, width=60, wrap=tk.WORD, state=tk.DISABLED)
+        self.my_public_key_text = scrolledtext.ScrolledText(self.keys_frame, height=4, width=60, wrap=tk.WORD, state=tk.DISABLED)
         self.my_public_key_text.grid(row=2, column=0, padx=5, pady=2, sticky='w')
-        tk.Label(keys_frame, text="Minha Chave Privada (NÃO COMPARTILHE!):").grid(row=1, column=1, padx=5, sticky='w')
-        self.my_private_key_text = scrolledtext.ScrolledText(keys_frame, height=4, width=60, wrap=tk.WORD, state=tk.DISABLED)
+        tk.Label(self.keys_frame, text="Minha Chave Privada (NÃO COMPARTILHE!):").grid(row=1, column=1, padx=5, sticky='w')
+        self.my_private_key_text = scrolledtext.ScrolledText(self.keys_frame, height=4, width=60, wrap=tk.WORD, state=tk.DISABLED)
         self.my_private_key_text.grid(row=2, column=1, padx=5, pady=2, sticky='w')
-        main_frame = ttk.LabelFrame(self.root, text="✉️ Message", padding=(10, 5))
-        main_frame.pack(padx=20, pady=10, fill="both", expand=True)
-        tk.Label(main_frame, text="Chave Pública do Destinatário:").pack(anchor='w')
-        self.recipient_public_key_text = scrolledtext.ScrolledText(main_frame, height=4, width=120)
+        
+        # --- Message Frame (apenas para Client) ---
+        self.main_frame = ttk.LabelFrame(self.root, text="✉️ Message", padding=(10, 5))
+        self.main_frame.pack(padx=20, pady=10, fill="both", expand=True)
+        tk.Label(self.main_frame, text="Chave Pública do Destinatário:").pack(anchor='w')
+        self.recipient_public_key_text = scrolledtext.ScrolledText(self.main_frame, height=4, width=120)
         self.recipient_public_key_text.pack(padx=5, pady=5, fill="x")
-        tk.Label(main_frame, text="Texto para Enviar:").pack(anchor='w')
-        self.entrada_texto = tk.Text(main_frame, height=3, width=100)
+        tk.Label(self.main_frame, text="Texto para Enviar:").pack(anchor='w')
+        self.entrada_texto = tk.Text(self.main_frame, height=3, width=100)
         self.entrada_texto.pack(padx=5, pady=5, fill="x")
-        self.process_button = tk.Button(main_frame, text="Encrypt and Broadcast", command=self.process_and_send, width=30, height=2)
+        self.process_button = tk.Button(self.main_frame, text="Encrypt and Broadcast", command=self.process_and_send, width=30, height=2)
         self.process_button.pack(pady=10)
-        tk.Label(main_frame, text="Output Log:").pack(anchor='w')
-        self.saida_texto = scrolledtext.ScrolledText(main_frame, height=10, width=120)
+        
+        # --- Output Log Frame (para ambos) ---
+        self.log_frame = ttk.LabelFrame(self.root, text="📄 Output Log", padding=(10, 5))
+        self.log_frame.pack(padx=20, pady=10, fill="both", expand=True)
+        self.saida_texto = scrolledtext.ScrolledText(self.log_frame, height=10, width=120)
         self.saida_texto.pack(padx=5, pady=5, fill="both", expand=True)
-        plot_frame = ttk.LabelFrame(self.root, text="📊 AMI Waveform", padding=(10, 5))
-        plot_frame.pack(padx=20, pady=10, fill="x")
-        self.fig, self.ax = plt.subplots(figsize=(12, 2.5))
-        self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
-        self.canvas.get_tk_widget().pack()
+        
         self.toggle_role()
 
     # NOVA FUNÇÃO para copiar a chave para a área de transferência
@@ -227,9 +226,6 @@ class NetworkCipherApp:
 
         messagebox.showinfo("Sucesso", "Par de chaves RSA gerado com sucesso!")
         
-    # Restante das funções (process_and_send, process_received_data, etc.)
-    # permanecem as mesmas da versão anterior.
-    # ... cole o restante do seu código aqui ...
     def process_and_send(self):
         """Lógica do Cliente: Criptografa e envia a mensagem em BROADCAST via UDP."""
         text = self.entrada_texto.get("1.0", tk.END).strip()
@@ -307,15 +303,37 @@ class NetworkCipherApp:
         
     def toggle_role(self, event=None):
         is_server = self.role_var.get() == "Server (Receive)"
-        client_state = tk.NORMAL if not is_server else tk.DISABLED
-        server_state = tk.NORMAL if is_server else tk.DISABLED
-        self.entrada_texto.config(state=client_state)
-        self.process_button.config(state=client_state)
-        self.ip_entry.config(state=client_state)
-        self.recipient_public_key_text.config(state=client_state)
-        self.server_button.config(state=server_state)
+        
+        if is_server:
+            # Server mode: mostrar keys_frame, ocultar main_frame
+            self.keys_frame.pack(padx=20, pady=5, fill="x", before=self.log_frame)
+            self.main_frame.pack_forget()
+            # Habilitar botão do servidor
+            self.server_button.config(state=tk.NORMAL)
+        else:
+            # Client mode: mostrar main_frame, ocultar keys_frame
+            self.main_frame.pack(padx=20, pady=10, fill="both", expand=True, before=self.log_frame)
+            self.keys_frame.pack_forget()
+            # Desabilitar botão do servidor
+            self.server_button.config(state=tk.DISABLED)
 
     def plot_wave(self, ami):
+        # Fechar janelas anteriores se existirem
+        if self.plot_window and self.plot_window.winfo_exists():
+            self.plot_window.destroy()
+        if self.plot_window_200 and self.plot_window_200.winfo_exists():
+            self.plot_window_200.destroy()
+            
+        # === GRÁFICO COMPLETO ===
+        # Criar nova janela para o gráfico completo
+        self.plot_window = tk.Toplevel(self.root)
+        self.plot_window.title("📊 AMI Waveform - Complete")
+        self.plot_window.geometry("800x500")
+        
+        # Criar figura e eixos
+        fig, ax = plt.subplots(figsize=(10, 4))
+        
+        # Calcular dados do gráfico completo
         x, y, tempo = [], [], 0
         for simbolo in ami:
             nivel = 0
@@ -325,15 +343,68 @@ class NetworkCipherApp:
             y.extend([nivel, nivel])
             tempo += 1
         
-        self.ax.clear()
-        self.ax.set_title("AMI Waveform")
-        self.ax.set_xlabel("Time"); self.ax.set_ylabel("Level")
-        self.ax.set_ylim(-1.5, 1.5); self.ax.set_xlim(0, max(1, tempo))
-        self.ax.grid(True)
-        self.ax.plot(x, y, drawstyle='steps-post', linewidth=2, color='blue')
-        self.fig.tight_layout()
-        self.canvas.draw()
-            
+        # Plotar gráfico completo
+        ax.clear()
+        ax.set_title("AMI Waveform - Complete Signal")
+        ax.set_xlabel("Time")
+        ax.set_ylabel("Level")
+        ax.set_ylim(-1.5, 1.5)
+        ax.set_xlim(0, max(1, tempo))
+        ax.grid(True)
+        ax.plot(x, y, drawstyle='steps-post', linewidth=2, color='blue')
+        fig.tight_layout()
+        
+        # Adicionar canvas com toolbar para zoom e navegação
+        canvas = FigureCanvasTkAgg(fig, master=self.plot_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        # Adicionar toolbar de navegação (zoom, pan, etc.)
+        toolbar = NavigationToolbar2Tk(canvas, self.plot_window)
+        toolbar.update()
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        # === GRÁFICO DAS PRIMEIRAS 200 POSIÇÕES ===
+        # Criar segunda janela para o gráfico truncado
+        self.plot_window_200 = tk.Toplevel(self.root)
+        self.plot_window_200.title("📊 AMI Waveform - First 200 Positions")
+        self.plot_window_200.geometry("800x500")
+        
+        # Criar figura e eixos para o gráfico truncado
+        fig2, ax2 = plt.subplots(figsize=(10, 4))
+        
+        # Calcular dados do gráfico truncado (primeiras 200 posições)
+        ami_truncated = ami[:200] if len(ami) > 200 else ami
+        x2, y2, tempo2 = [], [], 0
+        for simbolo in ami_truncated:
+            nivel = 0
+            if simbolo == '+': nivel = 1
+            elif simbolo == '-': nivel = -1
+            x2.extend([tempo2, tempo2 + 1])
+            y2.extend([nivel, nivel])
+            tempo2 += 1
+        
+        # Plotar gráfico truncado
+        ax2.clear()
+        ax2.set_title(f"AMI Waveform - First {len(ami_truncated)} Positions")
+        ax2.set_xlabel("Time")
+        ax2.set_ylabel("Level")
+        ax2.set_ylim(-1.5, 1.5)
+        ax2.set_xlim(0, max(1, tempo2))
+        ax2.grid(True)
+        ax2.plot(x2, y2, drawstyle='steps-post', linewidth=2, color='red')
+        fig2.tight_layout()
+        
+        # Adicionar canvas com toolbar para zoom e navegação
+        canvas2 = FigureCanvasTkAgg(fig2, master=self.plot_window_200)
+        canvas2.draw()
+        canvas2.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        # Adicionar toolbar de navegação (zoom, pan, etc.)
+        toolbar2 = NavigationToolbar2Tk(canvas2, self.plot_window_200)
+        toolbar2.update()
+        canvas2.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
     def server_thread_function(self, host, port):
         """Thread do Servidor: Escuta por pacotes UDP em uma porta."""
         # Cria o socket UDP
@@ -367,7 +438,7 @@ class NetworkCipherApp:
         """Inicia a thread que escuta por pacotes UDP."""
         # '0.0.0.0' significa escutar em todas as interfaces de rede disponíveis
         host_ip_to_bind = '0.0.0.0'
-        port = int(self.port_entry.get())
+        port = self.FIXED_PORT
         
         self.listening_message = f"Listening for broadcasts on port {port}"
         self.server_status_label.config(text=self.listening_message, fg="green")
@@ -387,6 +458,16 @@ class NetworkCipherApp:
        
     def periodic_queue_check(self):
         """Verifica a fila por novos dados recebidos."""
+        # Verificar se a aplicação ainda está rodando e se a janela ainda existe
+        if not self.is_running:
+            return
+            
+        try:
+            if not self.root.winfo_exists():
+                return
+        except tk.TclError:
+            return
+            
         while not self.data_queue.empty():
             # Pega o dicionário completo da fila
             received_info = self.data_queue.get()
@@ -396,11 +477,36 @@ class NetworkCipherApp:
             # Passa os dados e o endereço do remetente para a função de processamento
             self.process_received_data(ami_data, sender_addr)
             
-        self.root.after(100, self.periodic_queue_check)
+        if self.is_running:
+            try:
+                if self.root.winfo_exists():
+                    self.root.after(100, self.periodic_queue_check)
+            except tk.TclError:
+                self.is_running = False
 
     def on_closing(self):
+        self.is_running = False
         self.stop_server_event.set()
-        self.root.destroy()
+        
+        # Fechar janelas dos gráficos se existirem
+        try:
+            if self.plot_window and self.plot_window.winfo_exists():
+                self.plot_window.destroy()
+        except tk.TclError:
+            pass
+            
+        try:
+            if self.plot_window_200 and self.plot_window_200.winfo_exists():
+                self.plot_window_200.destroy()
+        except tk.TclError:
+            pass
+            
+        # Destruir a janela principal
+        try:
+            self.root.quit()  # Para o mainloop
+            self.root.destroy()
+        except tk.TclError:
+            pass
 
 if __name__ == "__main__":
     root = tk.Tk()
